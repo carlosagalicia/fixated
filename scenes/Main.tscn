@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://wjjiidogaxxf"]
 
-[ext_resource type="Script" uid="uid://d4amfhh2i7ww1" path="res://Main.gd" id="1_elqb8"]
-[ext_resource type="PackedScene" uid="uid://d0xxdj2ddwkc3" path="res://scenes/Part.tscn" id="2_rvslj"]
+[ext_resource type="Script" uid="uid://d4amfhh2i7ww1" path="res://scripts/Main.gd" id="1_elqb8"]
+[ext_resource type="PackedScene" uid="uid://4fidm1b6qafh" path="res://scenes/Engine.tscn" id="2_rvslj"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_elqb8")
@@ -13,4 +13,4 @@ fov = 100.0
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.144, 1.202, 1.92)
 
-[node name="Part" parent="." instance=ExtResource("2_rvslj")]
+[node name="Engine" parent="." instance=ExtResource("2_rvslj")]
