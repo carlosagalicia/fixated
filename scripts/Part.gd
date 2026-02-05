@@ -165,6 +165,16 @@ func _update_color(color: Color): # function that changes the mesh color
 		var mat := StandardMaterial3D.new()
 		mesh.material_override = mat
 	mesh.material_override.albedo_color = color
+	
+"""
+Set the selection outline visible if the part is being hovered
+@type: void
+@param: if the object is hovered or not (bool)
+"""
+func set_hovered(is_hovered: bool) -> void:
+	var outline := $Body/Outline
+	if outline:
+		outline.visible = is_hovered
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func _process(delta: float) -> void:
