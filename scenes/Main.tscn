@@ -14,3 +14,17 @@ fov = 100.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.144, 1.202, 1.92)
 
 [node name="Engine" parent="." instance=ExtResource("2_rvslj")]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="ModeSelector" type="OptionButton" parent="UI"]
+offset_right = 32.0
+offset_bottom = 20.0
+selected = 1
+item_count = 2
+popup/item_0/text = "Mount"
+popup/item_0/id = 0
+popup/item_1/text = "Dismount"
+popup/item_1/id = 1
+
+[connection signal="item_selected" from="UI/ModeSelector" to="." method="_on_mode_selector_item_selected"]

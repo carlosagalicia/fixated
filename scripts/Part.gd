@@ -28,26 +28,6 @@ func _ready() -> void:
 	exploded_pos = mounted_pos + exploded_offset.normalized() * exploded_distance
 
 """
-Toggle the mounting/dismounting of a piece based on its current state and the state
-of the pieces on which this piece depends on
-@type: void
-@param: none
-"""
-func toggle(): # change between mounted and dismounted with functions
-	print("Toggled: ", part_name)
-	if is_mounted():
-		if can_dismount(): # if part can be dismounted
-			dismount()
-		else:
-			deny_dismount_feedback() # deny dismount
-	else:
-		if can_mount(): # if part can be mounted
-			mount()
-		else:
-			deny_mount_feedback() # deny mount
-	
-
-"""
 Check if the dependent parts are mounted to allow object mount based on the 
 mounted/dismounted state of the pieces on which this piece depends on
 @type: bool
@@ -56,11 +36,11 @@ mounted/dismounted state of the pieces on which this piece depends on
 func can_mount() -> bool:
 	for path in mount_requires_mounted:
 		var other := get_node_or_null(path)
-		if other == null	:
+		if other == null:
 			continue
 		if other.is_dismounted():
 			return false
-	return true	
+	return true
 
 """
 Check if the dependent parts are dismounted to allow object dismount based on the 
@@ -71,7 +51,7 @@ mounted/dismounted state of the pieces on which this piece depends on
 func can_dismount() -> bool:
 	for path in dismount_requires_dismounted:
 		var other := get_node_or_null(path)
-		if other == null	:
+		if other == null:
 			continue
 		if other.is_mounted():
 			return false
@@ -113,7 +93,31 @@ func deny_mount_feedback():
 	print("Cannot mount ", part_name, " because dependencies are not mounted.")
 	_update_color(Color.ORANGE)
 
+"""
+Attempts to mount a part based on its current state and the state
+of the pieces on which this piece depends on
+@type: void
+@param: none
+"""
+func try_mount():
+	if is_dismounted():
+		if can_mount():
+			mount()
+		else:
+			deny_mount_feedback()
 
+"""
+Attempts to dismount a part based on its current state and the state
+of the pieces on which this piece depends on
+@type: void
+@param: none
+"""
+func try_dismount():
+	if is_mounted():
+		if can_dismount():
+			dismount()
+		else:
+			deny_dismount_feedback()
 
 """
 Dismount piece by changing its state to DISMOUNTED, its position and color to red
@@ -134,6 +138,7 @@ func mount():
 	state = State.MOUNTED
 	_update_color(Color.GREEN)
 	_move_to(mounted_pos)
+
 
 """
 Move the part to the specified position
