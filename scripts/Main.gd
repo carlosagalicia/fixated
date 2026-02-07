@@ -2,8 +2,17 @@ extends Node3D
 
 enum Mode {MOUNT, DISMOUNT}
 
-@onready var camera := $Camera3D # obtains camera
+@onready var pivot: Node3D = $CameraPivot
+@onready var camera: Camera3D = $CameraPivot/Camera3D # obtains camera
 
+@export var yaw_speed: float = 2.5 # left/right rotation
+@export var pitch_speed: float = 2 # up/down rotation
+
+const FRONT_PITCH := PI / 10.0
+const TOP_PITCH := -PI / 2.0
+
+var yaw := 0.0
+var pitch := 0.0
 var mode: Mode = Mode.DISMOUNT
 var hovered_part: Node3D = null
 
@@ -14,6 +23,13 @@ mode by default
 @param: none
 """
 func _ready() -> void:
+	# initialize pivot rotation
+	var r := pivot.rotation
+	yaw = r.y
+	pitch = clamp(r.x, TOP_PITCH, FRONT_PITCH)
+	pivot.rotation = Vector3(pitch, yaw, 0.0)
+	
+	# initialize with dismount mode
 	var selector := $UI/ModeSelector # current selector (e.g. optionButton)
 	if selector is OptionButton:
 		selector.select(1) # default dismount mode
@@ -86,4 +102,22 @@ func _update_hover(mouse_pos: Vector2) -> void:
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func _process(delta: float) -> void:
-	pass
+	var yaw_input := 0.0
+	var pitch_input := 0.0
+
+	if Input.is_action_pressed("cam_left"):
+		yaw_input -= 1.0
+	if Input.is_action_pressed("cam_right"):
+		yaw_input += 1.0
+	if Input.is_action_pressed("cam_up"):
+		pitch_input -= 1.0
+	if Input.is_action_pressed("cam_down"):
+		pitch_input += 1.0
+	
+	yaw += yaw_input * yaw_speed * delta
+	pitch += pitch_input * pitch_speed * delta
+
+	# Relative pitches from initial pose
+	pitch = clamp(pitch, TOP_PITCH, FRONT_PITCH)
+
+	pivot.rotation = Vector3(pitch, yaw, 0.0)
