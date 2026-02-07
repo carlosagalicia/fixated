@@ -11,7 +11,7 @@ const TOP_PITCH := -PI / 2.0
 @export var yaw_speed: float = 2.5 # left/right rotation
 @export var pitch_speed: float = 2 # up/down rotation
 @export var zoom_speed: float = 0.5
-@export var min_distance: float = 2.0
+@export var min_distance: float = 1.25
 @export var max_distance: float = 3.0
 @export var zoom_time: float = 0.15
 
