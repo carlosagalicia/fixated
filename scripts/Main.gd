@@ -2,19 +2,26 @@ extends Node3D
 
 enum Mode {MOUNT, DISMOUNT}
 
+const FRONT_PITCH := PI / 10.0
+const TOP_PITCH := -PI / 2.0
+
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D # obtains camera
 
 @export var yaw_speed: float = 2.5 # left/right rotation
 @export var pitch_speed: float = 2 # up/down rotation
+@export var zoom_speed: float = 0.5
+@export var min_distance: float = 2.0
+@export var max_distance: float = 3.0
+@export var zoom_time: float = 0.15
 
-const FRONT_PITCH := PI / 10.0
-const TOP_PITCH := -PI / 2.0
-
+var hovered_part: Node3D = null
 var yaw := 0.0
 var pitch := 0.0
 var mode: Mode = Mode.DISMOUNT
-var hovered_part: Node3D = null
+var distance: float = 0.0
+var zoom_tween: Tween
+var camera_z_sign := 1.0
 
 """
 Called when the node enters the scene tree for the first time. Set to dismount
@@ -34,6 +41,12 @@ func _ready() -> void:
 	if selector is OptionButton:
 		selector.select(1) # default dismount mode
 	mode = Mode.DISMOUNT
+	
+	# initialize camera distance from object
+	camera_z_sign = sign(camera.position.z)
+	if camera_z_sign == 0:
+		camera_z_sign = 1.0
+	distance = abs(camera.position.z)
 
 """
 Handle left-click events on parts to mount/dismount them.
@@ -46,6 +59,7 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 	if event is InputEventMouseMotion:
 		_update_hover(event.position)
 	
+	# left click on object
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_update_hover(event.position) # update hover
 		var space := get_world_3d().direct_space_state # current 3D world state
@@ -62,6 +76,32 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 					part.try_mount()
 			else:
 					part.try_dismount()
+	
+	# zoom
+	if event.is_action_pressed("zoom_in"):
+		_zoom_to(distance - zoom_speed)
+	elif event.is_action_pressed("zoom_out"):
+		_zoom_to(distance + zoom_speed)
+
+"""
+Set the camera distance to the object
+@type: void
+@param: new distance (float)
+"""
+func _zoom_to(new_distance: float) -> void:
+	var target: float = clampf(new_distance, min_distance, max_distance)
+	distance = target
+
+	if zoom_tween and zoom_tween.is_running():
+		zoom_tween.kill()
+
+	zoom_tween = create_tween()
+	zoom_tween.tween_property(
+		camera,
+		"position:z",
+		camera_z_sign * distance,
+		zoom_time
+	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 """
 Select the current item
