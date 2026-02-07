@@ -1,10 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://4fidm1b6qafh"]
+[gd_scene load_steps=2 format=3 uid="uid://4fidm1b6qafh"]
 
 [ext_resource type="PackedScene" uid="uid://d0xxdj2ddwkc3" path="res://scenes/Part.tscn" id="1_65q0f"]
-[ext_resource type="Script" uid="uid://c3ufm8doxithr" path="res://scripts/Assembly.gd" id="1_udv3m"]
 
 [node name="Engine" type="Node3D"]
-script = ExtResource("1_udv3m")
 
 [node name="Block" parent="." instance=ExtResource("1_65q0f")]
 dismount_requires_dismounted = Array[NodePath]([NodePath("../Head"), NodePath("../Filter")])
@@ -16,7 +14,7 @@ exploded_offset = Vector3(1, 0, 0)
 exploded_distance = 1.2
 
 [node name="Filter" parent="." instance=ExtResource("1_65q0f")]
-transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0.865)
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0.75)
 mount_requires_mounted = Array[NodePath]([NodePath("../Block")])
 exploded_offset = Vector3(0, 0, 1)
 exploded_distance = 1.5
