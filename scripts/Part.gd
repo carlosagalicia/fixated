@@ -14,6 +14,8 @@ enum State {MOUNTED, DISMOUNTED} # different part states
 @export var exploded_distance: float = 1.0 # separation distance
 @export var move_time: float = 0.18 # animation duration
 
+var _temp_color_active := false # if the part is colored when it is a dependency
+var _saved_color: Color # original color of the part
 var state := State.MOUNTED # part begins mounted
 var mounted_pos: Vector3
 var exploded_pos: Vector3
@@ -179,3 +181,64 @@ func set_hovered(is_hovered: bool) -> void:
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func _process(delta: float) -> void:
 	pass
+
+"""
+Get the current material of the mechanic piece, or creates a new one if it doesnt exist
+@type: void
+@param: none
+"""
+func _get_or_make_material() -> StandardMaterial3D:
+	var mesh: MeshInstance3D = $Body/Mesh
+	if mesh.material_override == null:
+		mesh.material_override = StandardMaterial3D.new()
+	return mesh.material_override as StandardMaterial3D
+
+"""
+Get the current color of the mechanic piece
+@type: void
+@param: none
+"""
+func get_current_color() -> Color:
+	var mat := _get_or_make_material()
+	return mat.albedo_color
+
+"""
+Set the color of the mechanic piece to a determined color if the part is marked to change its
+color, otherwise it is set to change the its color, and its original color is saved
+@type: void
+@param: future color of the part (Color)
+"""
+func set_temp_color(color: Color) -> void:
+	if not _temp_color_active:
+		_saved_color = get_current_color()
+		_temp_color_active = true
+	var mat := _get_or_make_material()
+	mat.albedo_color = color
+
+"""
+Clear the current color of the part and sets it to its original color
+@type: void
+@param: none
+"""
+func clear_temp_color() -> void:
+	if not _temp_color_active:
+		return
+	var mat := _get_or_make_material()
+	mat.albedo_color = _saved_color
+	_temp_color_active = false
+
+"""
+Get the list of direct children parts that are still mounted
+@type: Array[Node3D]
+@param: none
+"""
+func get_blocking_dismount_children() -> Array[Node3D]:
+	var blockingParts: Array[Node3D] = []
+	for path in dismount_requires_dismounted:
+		var other := get_node_or_null(path)
+		if other == null:
+			continue
+		# only direct children
+		if other.is_mounted():
+			blockingParts.append(other)
+	return blockingParts

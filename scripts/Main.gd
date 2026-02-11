@@ -22,6 +22,7 @@ var mode: Mode = Mode.DISMOUNT
 var distance: float = 0.0
 var zoom_tween: Tween
 var camera_z_sign := 1.0
+var highlighted_children: Array[Node3D] = []
 
 """
 Called when the node enters the scene tree for the first time. Set to dismount
@@ -135,12 +136,28 @@ func _update_hover(mouse_pos: Vector2) -> void:
 	if new_hover != hovered_part:
 		if hovered_part:
 			hovered_part.set_hovered(false) # turn off old one
+		
+		_clear_highlighted_children() # clear its highligted children
+		
 		hovered_part = new_hover
-
+		
 		if hovered_part:
 			hovered_part.set_hovered(true) # turn on new one
+			
+			if mode == Mode.DISMOUNT:
+				var blockersList: Array = hovered_part.get_blocking_dismount_children()
+				print("Dependent parts: ", blockersList)
+				for b in blockersList:
+					if b:
+						b.set_temp_color(Color.RED)
+						highlighted_children.append(b)
 
-# Called every frame. 'delta' is the elapsed time since the previous frame.
+
+"""
+Update the rotation
+@type: void
+@param: current time elapsed (float)
+"""
 func _process(delta: float) -> void:
 	var yaw_input := 0.0
 	var pitch_input := 0.0
@@ -161,3 +178,14 @@ func _process(delta: float) -> void:
 	pitch = clamp(pitch, TOP_PITCH, FRONT_PITCH)
 
 	pivot.rotation = Vector3(pitch, yaw, 0.0)
+
+"""
+Clear the parts that were highlighted
+@type: void
+@param: none
+"""
+func _clear_highlighted_children() -> void:
+	for p in highlighted_children:
+		if p:
+			p.clear_temp_color()
+	highlighted_children.clear()
