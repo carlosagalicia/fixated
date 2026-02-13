@@ -13,6 +13,7 @@ enum State {MOUNTED, DISMOUNTED} # different part states
 @export var exploded_offset: Vector3 = Vector3(0, 1, 0) # separation direction
 @export var exploded_distance: float = 1.0 # separation distance
 @export var move_time: float = 0.18 # animation duration
+@onready var ghost: MeshInstance3D = $Body/Ghost
 
 var _temp_color_active := false # if the part is colored when it is a dependency
 var _orig_material_override: Material = null # original material override
@@ -20,7 +21,25 @@ var _orig_albedo_color: Color = Color.WHITE # original color
 var _orig_has_override := false # if material is overriden
 var state := State.MOUNTED # part begins mounted
 var mounted_pos: Vector3
+var mounted_global_pos: Vector3
 var exploded_pos: Vector3
+
+"""
+Set the part ghost review on/off
+@type: void
+@param: if it is visible or not (bool)
+"""
+func set_ghost_visible(v: bool) -> void:
+	if ghost:
+		ghost.visible = v
+
+"""
+See if the part has no dependencies to mount
+@type: void
+@param: none
+"""
+func is_mount_root() -> bool:
+	return mount_requires_mounted.is_empty()
 
 """
 Get the current mesh of the body
@@ -75,8 +94,10 @@ stores the original part appeareance
 @param: none
 """
 func _ready() -> void:
+	add_to_group("parts") # add part to the parts group
 	_cache_original_appearance()
 	mounted_pos = position
+	mounted_global_pos = global_position
 	exploded_pos = mounted_pos + exploded_offset.normalized() * exploded_distance
 
 """
@@ -124,7 +145,6 @@ Check if the part is mounted
 """
 func is_mounted() -> bool:
 	return state == State.MOUNTED
-
 
 
 """
@@ -204,9 +224,14 @@ func set_hovered(is_hovered: bool) -> void:
 	if outline:
 		outline.visible = is_hovered
 
-# Called every frame. 'delta' is the elapsed time since the previous frame.
+"""
+Set the ghost version of the part in the mounted position
+@type: void
+@param: current time elapsed (float)
+"""
 func _process(delta: float) -> void:
-	pass
+	if ghost and ghost.visible:
+		ghost.global_position = mounted_global_pos
 
 """
 Set the color of the mechanic piece to a determined color if the part is marked to change its
