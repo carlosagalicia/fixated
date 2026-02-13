@@ -112,7 +112,6 @@ Select the current item
 func _on_mode_selector_item_selected(index: int) -> void:
 	# index 0 = Mount, index 1 = Dismount
 	mode = Mode.MOUNT if index == 0 else Mode.DISMOUNT
-	print("Mode:", "MOUNT" if mode == Mode.MOUNT else "DISMOUNT")
 
 """
 Update the hover 
@@ -146,7 +145,6 @@ func _update_hover(mouse_pos: Vector2) -> void:
 			
 			if mode == Mode.DISMOUNT:
 				var blockersList: Array = hovered_part.get_blocking_dismount_children()
-				print("Dependent parts: ", blockersList)
 				for b in blockersList:
 					if b:
 						b.set_temp_color(Color.RED)
