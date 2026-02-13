@@ -15,17 +15,67 @@ enum State {MOUNTED, DISMOUNTED} # different part states
 @export var move_time: float = 0.18 # animation duration
 
 var _temp_color_active := false # if the part is colored when it is a dependency
-var _saved_color: Color # original color of the part
+var _orig_material_override: Material = null # original material override
+var _orig_albedo_color: Color = Color.WHITE # original color
+var _orig_has_override := false # if material is overriden
 var state := State.MOUNTED # part begins mounted
 var mounted_pos: Vector3
 var exploded_pos: Vector3
 
 """
-Called when the node enters the scene tree for the first time. Saves the original position
+Get the current mesh of the body
+@type: void
+@param: none
+"""
+func _get_mesh() -> MeshInstance3D:
+	return $Body/Mesh
+	
+"""
+Store original material and color of the part
+@type: void
+@param: none
+"""
+func _cache_original_appearance() -> void:
+	var mesh := _get_mesh()
+
+	_orig_has_override = mesh.material_override != null
+	_orig_material_override = mesh.material_override
+
+	var mat := mesh.get_active_material(0)
+	if mat is StandardMaterial3D:
+		_orig_albedo_color = (mat as StandardMaterial3D).albedo_color
+	else:
+		_orig_albedo_color = Color.WHITE # colors the material on white if material cant be obtained
+
+"""
+Store original material and color of the part
+@type: void
+@param: none
+"""
+func _get_or_make_unique_override() -> StandardMaterial3D:
+	var mesh := _get_mesh()
+
+	# if there is already an override material, use it
+	if mesh.material_override is StandardMaterial3D:
+		return mesh.material_override as StandardMaterial3D
+
+	# if there is no override, duplicate the active material (to avoid modifying shared resources)
+	var active := mesh.get_active_material(0)
+	if active:
+		mesh.material_override = active.duplicate()
+	else:
+		mesh.material_override = StandardMaterial3D.new()
+
+	return mesh.material_override as StandardMaterial3D
+	
+"""
+Called when the node enters the scene tree for the first time. Saves the original position and
+stores the original part appeareance
 @type: void
 @param: none
 """
 func _ready() -> void:
+	_cache_original_appearance()
 	mounted_pos = position
 	exploded_pos = mounted_pos + exploded_offset.normalized() * exploded_distance
 
@@ -75,25 +125,7 @@ Check if the part is mounted
 func is_mounted() -> bool:
 	return state == State.MOUNTED
 
-"""
-Display message of dismount attempt denial
-@type: void
-@param: none
-"""
-func deny_dismount_feedback():
-	# Feedback to debug TODO: make it UI
-	print("Cannot dismount ", part_name, " because dependencies are not dismounted.")
-	_update_color(Color.YELLOW)
 
-"""
-Display message of mount attempt denial
-@type: void
-@param: none
-"""
-func deny_mount_feedback():
-	# Feedback to debug TODO: make it UI
-	print("Cannot mount ", part_name, " because dependencies are not mounted.")
-	_update_color(Color.ORANGE)
 
 """
 Attempts to mount a part based on its current state and the state
@@ -105,8 +137,6 @@ func try_mount():
 	if is_dismounted():
 		if can_mount():
 			mount()
-		else:
-			deny_mount_feedback()
 
 """
 Attempts to dismount a part based on its current state and the state
@@ -118,8 +148,6 @@ func try_dismount():
 	if is_mounted():
 		if can_dismount():
 			dismount()
-		else:
-			deny_dismount_feedback()
 
 """
 Dismount piece by changing its state to DISMOUNTED, its position and color to red
@@ -128,7 +156,6 @@ Dismount piece by changing its state to DISMOUNTED, its position and color to re
 """
 func dismount():
 	state = State.DISMOUNTED
-	_update_color(Color.RED)
 	_move_to(exploded_pos)
 
 """
@@ -138,7 +165,6 @@ Mount piece by changing its state to MOUNTED, its position and color to green
 """
 func mount():
 	state = State.MOUNTED
-	_update_color(Color.GREEN)
 	_move_to(mounted_pos)
 
 
@@ -183,26 +209,6 @@ func _process(delta: float) -> void:
 	pass
 
 """
-Get the current material of the mechanic piece, or creates a new one if it doesnt exist
-@type: void
-@param: none
-"""
-func _get_or_make_material() -> StandardMaterial3D:
-	var mesh: MeshInstance3D = $Body/Mesh
-	if mesh.material_override == null:
-		mesh.material_override = StandardMaterial3D.new()
-	return mesh.material_override as StandardMaterial3D
-
-"""
-Get the current color of the mechanic piece
-@type: void
-@param: none
-"""
-func get_current_color() -> Color:
-	var mat := _get_or_make_material()
-	return mat.albedo_color
-
-"""
 Set the color of the mechanic piece to a determined color if the part is marked to change its
 color, otherwise it is set to change the its color, and its original color is saved
 @type: void
@@ -210,9 +216,10 @@ color, otherwise it is set to change the its color, and its original color is sa
 """
 func set_temp_color(color: Color) -> void:
 	if not _temp_color_active:
-		_saved_color = get_current_color()
 		_temp_color_active = true
-	var mat := _get_or_make_material()
+		_cache_original_appearance()
+
+	var mat := _get_or_make_unique_override()
 	mat.albedo_color = color
 
 """
@@ -223,9 +230,14 @@ Clear the current color of the part and sets it to its original color
 func clear_temp_color() -> void:
 	if not _temp_color_active:
 		return
-	var mat := _get_or_make_material()
-	mat.albedo_color = _saved_color
 	_temp_color_active = false
+
+	var mesh := _get_mesh()
+
+	if _orig_has_override:
+		mesh.material_override = _orig_material_override
+	else:
+		mesh.material_override = null
 
 """
 Get the list of direct children parts that are still mounted
