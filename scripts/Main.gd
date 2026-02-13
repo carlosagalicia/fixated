@@ -7,6 +7,7 @@ const TOP_PITCH := -PI / 2.0
 
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D # obtains camera
+@onready var parts: Array[Node] = get_tree().get_nodes_in_group("parts") # obtains all parts
 
 @export var yaw_speed: float = 2.5 # left/right rotation
 @export var pitch_speed: float = 2 # up/down rotation
@@ -23,6 +24,37 @@ var distance: float = 0.0
 var zoom_tween: Tween
 var camera_z_sign := 1.0
 var highlighted_children: Array[Node3D] = []
+
+"""
+Show all ghost parts that can be mounted in the MOUNT mode
+mode by default
+@type: void
+@param: none
+"""
+func _refresh_mount_ghosts() -> void:
+	# Turn off all ghosts first
+	for p in parts:
+		if p:
+			p.set_ghost_visible(false)
+			
+	if mode != Mode.MOUNT:
+		return
+	# Mountable candidates (dismounted + can_mount)
+	var mountables: Array[Node3D] = []
+	for p in parts:
+		if p and p.is_dismounted() and p.can_mount():
+			mountables.append(p)
+
+	# If no candidates, show roots (dismounted + without requirements)
+	if mountables.is_empty():
+		for p in parts:
+			if p and p.is_dismounted() and p.is_mount_root():
+				p.set_ghost_visible(true)
+		return
+
+	# Otherwise, show candidates
+	for p in mountables:
+		p.set_ghost_visible(true)
 
 """
 Called when the node enters the scene tree for the first time. Set to dismount
@@ -74,9 +106,10 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 			var body: CollisionObject3D = result.collider # object that was collided
 			var part: Node3D = body.get_parent() # ← (part that was collided e.g block)
 			if mode == Mode.MOUNT:
-					part.try_mount()
+				part.try_mount()
 			else:
-					part.try_dismount()
+				part.try_dismount()
+			_refresh_mount_ghosts()
 	
 	# zoom
 	if event.is_action_pressed("zoom_in"):
@@ -105,13 +138,15 @@ func _zoom_to(new_distance: float) -> void:
 	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 """
-Select the current item
+Select the current item, updates the ghost view of all parts
 @type: void
 @param: index (int)
 """
 func _on_mode_selector_item_selected(index: int) -> void:
 	# index 0 = Mount, index 1 = Dismount
 	mode = Mode.MOUNT if index == 0 else Mode.DISMOUNT
+	# Update ghost preview
+	_refresh_mount_ghosts()
 
 """
 Update the hover 
