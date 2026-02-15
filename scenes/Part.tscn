@@ -14,6 +14,7 @@ render_priority = 2
 cull_mode = 1
 shading_mode = 0
 albedo_color = Color(0, 0.9990863, 0, 1)
+grow_amount = 0.01
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_d2i1k"]
 
@@ -37,4 +38,9 @@ mesh = SubResource("BoxMesh_d2i1k")
 surface_material_override/0 = SubResource("StandardMaterial3D_d2i1k")
 
 [node name="Collision" type="CollisionShape3D" parent="Body"]
+shape = SubResource("BoxShape3D_d2i1k")
+
+[node name="GhostHit" type="Area3D" parent="Body"]
+
+[node name="GhostCollision" type="CollisionShape3D" parent="Body/GhostHit"]
 shape = SubResource("BoxShape3D_d2i1k")

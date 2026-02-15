@@ -14,15 +14,83 @@ enum State {MOUNTED, DISMOUNTED} # different part states
 @export var exploded_distance: float = 1.0 # separation distance
 @export var move_time: float = 0.18 # animation duration
 @onready var ghost: MeshInstance3D = $Body/Ghost
+@onready var ghost_hit: Area3D = $Body/GhostHit
 
 var _temp_color_active := false # if the part is colored when it is a dependency
 var _orig_material_override: Material = null # original material override
-var _orig_albedo_color: Color = Color.WHITE # original color
 var _orig_has_override := false # if material is overriden
 var state := State.MOUNTED # part begins mounted
-var mounted_pos: Vector3
-var mounted_global_pos: Vector3
-var exploded_pos: Vector3
+var mounted_pos: Vector3 # part position when mounted
+var mounted_global_pos: Vector3 # part global position when mounted
+var dismounted_pos: Vector3 # part position when dismounted
+var stored := false # if part is stored
+var stored_pos: Vector3 # part position when stored
+var _orig_layer: int
+var _orig_mask: int
+var _ghost_hover_active := false
+var _ghost_saved_color: Color = Color.WHITE
+
+"""
+Get the ghost mesh of this part
+@type: MeshInstance3D
+@param: none
+"""
+func _get_ghost_mesh() -> MeshInstance3D:
+	return $Body/Ghost
+
+"""
+Get the ghost material, if it is not unique, make it unique by duplicating the active 
+material or creating a new one if there is no active material
+@type: StandardMaterial3D
+@param: none
+"""
+func _get_or_make_unique_ghost_material() -> StandardMaterial3D:
+	var g := _get_ghost_mesh()
+
+	if g.material_override is StandardMaterial3D:
+		return g.material_override as StandardMaterial3D
+
+	var active := g.get_active_material(0)
+	if active:
+		g.material_override = active.duplicate()
+	else:
+		g.material_override = StandardMaterial3D.new()
+
+	return g.material_override as StandardMaterial3D
+
+"""
+Set the color of the ghost part to a determined color, and saves the original color if it is not already saved
+@type: void
+@param: future color of the ghost part (Color)
+"""
+func _ghost_set_hover_color(color: Color) -> void:
+	var mat := _get_or_make_unique_ghost_material()
+	if not _ghost_hover_active:
+		_ghost_saved_color = mat.albedo_color
+		_ghost_hover_active = true
+	mat.albedo_color = color
+
+"""
+Clear the current color of the ghost part and sets it to its original color
+@type: void
+@param: none
+"""
+func _ghost_clear_hover_color() -> void:
+	if not _ghost_hover_active:
+		return
+	var mat := _get_or_make_unique_ghost_material()
+	mat.albedo_color = _ghost_saved_color
+	_ghost_hover_active = false
+
+"""
+Set the real outline visible or not
+@type: void
+@param: if the real outline is visible or not (bool)
+"""
+func _set_real_outline(v: bool) -> void:
+	var outline := $Body/Outline
+	if outline:
+		outline.visible = v
 
 """
 Set the part ghost review on/off
@@ -30,8 +98,16 @@ Set the part ghost review on/off
 @param: if it is visible or not (bool)
 """
 func set_ghost_visible(v: bool) -> void:
+	var showg := v and is_dismounted()
 	if ghost:
-		ghost.visible = v
+		ghost.visible = showg
+	if ghost_hit:
+		ghost_hit.monitorable = showg
+		ghost_hit.monitoring = showg
+		ghost_hit.collision_layer = 1 if showg else 0
+		ghost_hit.collision_mask = 1 if showg else 0
+	if not showg:
+		_ghost_clear_hover_color()
 
 """
 See if the part has no dependencies to mount
@@ -61,10 +137,6 @@ func _cache_original_appearance() -> void:
 	_orig_material_override = mesh.material_override
 
 	var mat := mesh.get_active_material(0)
-	if mat is StandardMaterial3D:
-		_orig_albedo_color = (mat as StandardMaterial3D).albedo_color
-	else:
-		_orig_albedo_color = Color.WHITE # colors the material on white if material cant be obtained
 
 """
 Store original material and color of the part
@@ -98,7 +170,11 @@ func _ready() -> void:
 	_cache_original_appearance()
 	mounted_pos = position
 	mounted_global_pos = global_position
-	exploded_pos = mounted_pos + exploded_offset.normalized() * exploded_distance
+	dismounted_pos = mounted_pos + exploded_offset.normalized() * exploded_distance
+	
+	_orig_layer = $Body.collision_layer
+	_orig_mask = $Body.collision_mask
+	stored_pos = dismounted_pos
 
 """
 Check if the dependent parts are mounted to allow object mount based on the 
@@ -170,23 +246,47 @@ func try_dismount():
 			dismount()
 
 """
-Dismount piece by changing its state to DISMOUNTED, its position and color to red
+Dismount piece by changing its state to DISMOUNTED, and its position
 @type: void
 @param: none
 """
 func dismount():
 	state = State.DISMOUNTED
-	_move_to(exploded_pos)
-
+	stored = false
+	_move_to(dismounted_pos)
+	# When animation finishes, store and hide
+	if move_tween:
+		move_tween.finished.connect(_on_dismount_finished, CONNECT_ONE_SHOT)
+	
 """
-Mount piece by changing its state to MOUNTED, its position and color to green
+Called when the dismount animation finishes. Stores the part position and hides it
+@type: void
+@param: none
+"""
+func _on_dismount_finished() -> void:
+	stored = true
+	stored_pos = position # last position (dismounted)
+	$Body/Mesh.visible = false
+	$Body/Outline.visible = false
+	$Body.collision_layer = 0
+	$Body.collision_mask = 0
+	
+"""
+Mount piece by changing its state to MOUNTED, and its position
 @type: void
 @param: none
 """
 func mount():
 	state = State.MOUNTED
+	
+	if stored:
+		stored = false
+		$Body/Mesh.visible = true
+		$Body.collision_layer = _orig_layer
+		$Body.collision_mask = _orig_mask
+		position = stored_pos
+	
 	_move_to(mounted_pos)
-
 
 """
 Move the part to the specified position
@@ -200,29 +300,26 @@ func _move_to(target_pos: Vector3) -> void:
 		move_tween.kill()
 	move_tween = create_tween()
 	move_tween.tween_property(self , "position", target_pos, move_time).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-
-"""
-Update color of the object (mesh) by overriding its material with the chosen 
-color
-@type: void
-@param: chosen color of the object (Color)
-"""
-func _update_color(color: Color): # function that changes the mesh color
-	var mesh: MeshInstance3D = $Body/Mesh # mesh class in the body
-	if mesh.material_override == null: # if mesh doesn't have a overrided material, create a new one
-		var mat := StandardMaterial3D.new()
-		mesh.material_override = mat
-	mesh.material_override.albedo_color = color
 	
 """
 Set the selection outline visible if the part is being hovered
 @type: void
 @param: if the object is hovered or not (bool)
 """
-func set_hovered(is_hovered: bool) -> void:
-	var outline := $Body/Outline
-	if outline:
-		outline.visible = is_hovered
+func set_hovered(is_hovered: bool, is_ghost: bool = false) -> void:
+	if is_ghost:
+		_set_real_outline(false)
+
+		if ghost and ghost.visible:
+			if is_hovered:
+				_ghost_set_hover_color(Color(0.6, 1.0, 0.6, 1.0))
+			else:
+				_ghost_clear_hover_color()
+		else:
+			_ghost_clear_hover_color()
+	else:
+		_ghost_clear_hover_color()
+		_set_real_outline(is_hovered)
 
 """
 Set the ghost version of the part in the mounted position
@@ -231,7 +328,9 @@ Set the ghost version of the part in the mounted position
 """
 func _process(delta: float) -> void:
 	if ghost and ghost.visible:
-		ghost.global_position = mounted_global_pos
+		var gp := mounted_global_pos
+		ghost.global_position = gp
+		ghost_hit.global_position = gp
 
 """
 Set the color of the mechanic piece to a determined color if the part is marked to change its
