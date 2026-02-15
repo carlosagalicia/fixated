@@ -7,7 +7,7 @@ const TOP_PITCH := -PI / 2.0
 
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D # obtains camera
-@onready var parts: Array[Node] = get_tree().get_nodes_in_group("parts") # obtains all parts
+@onready var parts: Array[Node] = [] # obtains all parts
 
 @export var yaw_speed: float = 2.5 # left/right rotation
 @export var pitch_speed: float = 2 # up/down rotation
@@ -24,6 +24,23 @@ var distance: float = 0.0
 var zoom_tween: Tween
 var camera_z_sign := 1.0
 var highlighted_children: Array[Node3D] = []
+
+"""
+Return the part that was hit by the ray and whether it is a ghost part or not
+@type: Dictionary
+@param: the object that was hit by the ray (Object)
+"""
+func _get_part_and_is_ghost(hit: Object) -> Dictionary:
+	if hit is Area3D:
+		var body := (hit as Node).get_parent()
+		var part := body.get_parent() as Node3D
+		return {"part": part, "is_ghost": true}
+
+	if hit is CollisionObject3D:
+		var part := (hit as Node).get_parent() as Node3D
+		return {"part": part, "is_ghost": false}
+
+	return {"part": null, "is_ghost": false}
 
 """
 Show all ghost parts that can be mounted in the MOUNT mode
@@ -80,6 +97,9 @@ func _ready() -> void:
 	if camera_z_sign == 0:
 		camera_z_sign = 1.0
 	distance = abs(camera.position.z)
+	
+	parts = get_tree().get_nodes_in_group("parts") # get all parts
+	_refresh_mount_ghosts()
 
 """
 Handle left-click events on parts to mount/dismount them.
@@ -100,15 +120,20 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 		var to: Vector3 = from + camera.project_ray_normal(event.position) * 100.0 # final point of ray
 		
 		var query := PhysicsRayQueryParameters3D.create(from, to) # define total ray
+		query.collide_with_bodies = true
+		query.collide_with_areas = true
 		var result := space.intersect_ray(query) # execute ray returning collision info
 		
 		if result and result.collider: # if there is a collision:
-			var body: CollisionObject3D = result.collider # object that was collided
-			var part: Node3D = body.get_parent() # ← (part that was collided e.g block)
-			if mode == Mode.MOUNT:
-				part.try_mount()
-			else:
-				part.try_dismount()
+			var info := _get_part_and_is_ghost(result.collider)
+			var part: Node3D = info["part"]
+			if part:
+				if mode == Mode.MOUNT:
+					if part.has_method("try_mount"):
+						part.try_mount()
+				else:
+					if part.has_method("try_dismount"):
+						part.try_dismount()
 			_refresh_mount_ghosts()
 	
 	# zoom
@@ -159,29 +184,33 @@ func _update_hover(mouse_pos: Vector2) -> void:
 	var to: Vector3 = from + camera.project_ray_normal(mouse_pos) * 100.0
 
 	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collide_with_bodies = true
+	query.collide_with_areas = true
+
 	var result := space.intersect_ray(query)
 
 	var new_hover: Node3D = null
-	if result and result.collider: # if collided get collided object
-		var body: CollisionObject3D = result.collider
-		new_hover = body.get_parent()
+	var new_is_ghost := false
+	if result and result.collider:
+		var info := _get_part_and_is_ghost(result.collider)
+		new_hover = info["part"]
+		new_is_ghost = info["is_ghost"]
 
-	# If hovered object changed, turn off the old one and turn on the new one
 	if new_hover != hovered_part:
-		if hovered_part:
-			hovered_part.set_hovered(false) # turn off old one
-		
-		_clear_highlighted_children() # clear its highligted children
-		
+		if hovered_part and hovered_part.has_method("set_hovered"):
+			hovered_part.set_hovered(false)
+
+		_clear_highlighted_children()
+
 		hovered_part = new_hover
-		
-		if hovered_part:
-			hovered_part.set_hovered(true) # turn on new one
-			
-			if mode == Mode.DISMOUNT:
-				var blockersList: Array = hovered_part.get_blocking_dismount_children()
-				for b in blockersList:
-					if b:
+
+		if hovered_part and hovered_part.has_method("set_hovered"):
+			hovered_part.set_hovered(true, new_is_ghost)
+
+			if mode == Mode.DISMOUNT and hovered_part.has_method("get_blocking_dismount_children"):
+				var blockers_list: Array[Node3D] = hovered_part.get_blocking_dismount_children()
+				for b in blockers_list:
+					if b and b.has_method("set_temp_color"):
 						b.set_temp_color(Color.RED)
 						highlighted_children.append(b)
 
