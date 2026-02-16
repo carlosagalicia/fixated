@@ -18,7 +18,7 @@ const TOP_PITCH := -PI / 2.0
 @export var min_distance: float = 1.25
 @export var max_distance: float = 3.0
 @export var zoom_time: float = 0.15
-@export var hold_time_to_dismount: float = 0.5
+@export var hold_time_to_act: float = 0.5
 
 var _hold_part: Node3D = null # part that is being held
 var _hold_timer: float = 0.0
@@ -31,6 +31,28 @@ var distance: float = 0.0
 var zoom_tween: Tween
 var camera_z_sign := 1.0
 var highlighted_children: Array[Node3D] = []
+
+"""
+Perform a raycast from the camera through the given screen position 
+and return the part that was hit and whether it is a ghost part or not.
+@type: Dictionary
+@param: screen position to raycast from (Vector2)
+"""
+func _raycast_from_screen(screen_pos: Vector2) -> Dictionary:
+	var space := get_world_3d().direct_space_state
+	var from := camera.project_ray_origin(screen_pos)
+	var to := from + camera.project_ray_normal(screen_pos) * 100.0
+
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collide_with_bodies = true
+	query.collide_with_areas = true
+
+	var result := space.intersect_ray(query)
+
+	if result and result.collider:
+		return _get_part_and_is_ghost(result.collider)
+
+	return {"part": null, "is_ghost": false}
 
 """
 Set the radial progress shader parameter to show hold-to-dismount progress.
@@ -49,20 +71,8 @@ Return the part under the mouse cursor by raycasting into the scene.
 @param: screen position of the mouse (Vector2)
 """
 func _get_part_under_mouse(screen_pos: Vector2) -> Node3D:
-	var space := get_world_3d().direct_space_state
-	var from := camera.project_ray_origin(screen_pos)
-	var to := from + camera.project_ray_normal(screen_pos) * 100.0
-
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collide_with_bodies = true
-	query.collide_with_areas = true
-
-	var result := space.intersect_ray(query)
-	if result and result.collider:
-		var info := _get_part_and_is_ghost(result.collider)
-		return info["part"] as Node3D
-
-	return null
+	var info := _raycast_from_screen(screen_pos)
+	return info["part"] as Node3D
 
 """
 Return the part that was hit by the ray and whether it is a ghost part or not
@@ -157,33 +167,51 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 	if event is InputEventMouseMotion:
 		_update_hover(event.position)
 	
-	# left click / hold logic
+	# left click / hold logic (BOTH MODES)
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		_update_hover(event.position) # update hover
-		
-		if mode == Mode.MOUNT:
-			# Regular mount click
-			if event.pressed:
-				var part := _get_part_under_mouse(event.position)
-				if part:
-					part.try_mount()
-					_refresh_mount_ghosts()
-		else:
-			# DISMOUNT: HOLD to dismount
-			if event.pressed:
-				_holding = true
-				_hold_timer = 0.0
-				_hold_part = _get_part_under_mouse(event.position)
-				# show radial if pressing on a part
-				radial.visible = _hold_part != null
-				_set_hold_progress(0.0)
+		_update_hover(event.position)
+
+		if event.pressed:
+			var info := _raycast_from_screen(event.position)
+			var part: Node3D = info["part"]
+			var is_ghost: bool = info["is_ghost"]
+
+			if mode == Mode.MOUNT:
+				# Only a ghost part initiates hold
+				if part != null and is_ghost:
+					_holding = true
+					_hold_timer = 0.0
+					_hold_part = part
+					radial.visible = true
+					_set_hold_progress(0.0)
+				else:
+					_holding = false
+					_hold_timer = 0.0
+					_hold_part = null
+					radial.visible = false
+					_set_hold_progress(0.0)
+
 			else:
-				# if let go before then cancel
-				_holding = false
-				_hold_timer = 0.0
-				_hold_part = null
-				radial.visible = false
-				_set_hold_progress(0.0)
+				if part != null and not is_ghost:
+					_holding = true
+					_hold_timer = 0.0
+					_hold_part = part
+					radial.visible = true
+					_set_hold_progress(0.0)
+				else:
+					_holding = false
+					_hold_timer = 0.0
+					_hold_part = null
+					radial.visible = false
+					_set_hold_progress(0.0)
+
+		else:
+			# Click is released, hold is canceled
+			_holding = false
+			_hold_timer = 0.0
+			_hold_part = null
+			radial.visible = false
+			_set_hold_progress(0.0)
 
 	# zoom
 	if event.is_action_pressed("zoom_in"):
@@ -235,22 +263,9 @@ also show red blockers for parts that would prevent dismounting.
 @param: current mouse position (Vector2)
 """
 func _update_hover(mouse_pos: Vector2) -> void:
-	var space := get_world_3d().direct_space_state
-	var from: Vector3 = camera.project_ray_origin(mouse_pos)
-	var to: Vector3 = from + camera.project_ray_normal(mouse_pos) * 100.0
-
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collide_with_bodies = true
-	query.collide_with_areas = true
-
-	var result := space.intersect_ray(query)
-
-	var new_hover: Node3D = null
-	var new_is_ghost := false
-	if result and result.collider:
-		var info := _get_part_and_is_ghost(result.collider)
-		new_hover = info["part"]
-		new_is_ghost = info["is_ghost"]
+	var info := _raycast_from_screen(mouse_pos)
+	var new_hover := info["part"] as Node3D
+	var new_is_ghost := bool(info["is_ghost"])
 
 	if new_hover != hovered_part:
 		if hovered_part:
@@ -296,38 +311,42 @@ func _process(delta: float) -> void:
 
 	pivot.rotation = Vector3(pitch, yaw, 0.0)
 	
-	# Hold-to-dismount
-	if mode == Mode.DISMOUNT and _holding:
+	# Hold-to-do-action
+	if _holding:
+		# If we started holding but not on a part, stop immediately
 		if _hold_part == null:
 			_holding = false
 			_hold_timer = 0.0
 			radial.visible = false
 			_set_hold_progress(0.0)
-			return
+		else:
+			_hold_timer += delta
+			var progress := _hold_timer / hold_time_to_act
+			radial.visible = true
+			_set_hold_progress(progress)
 
-		_hold_timer += delta
-		var progress := _hold_timer / hold_time_to_dismount
-		radial.visible = true
-		_set_hold_progress(progress)
+			# If mouse moved to another part, restart hold on the new one
+			var current := _get_part_under_mouse(get_viewport().get_mouse_position())
+			if current != _hold_part:
+				_hold_part = current
+				_hold_timer = 0.0
+				radial.visible = _hold_part != null
+				_set_hold_progress(0.0)
 
-		# if mouse changes to another piece, restart
-		var current := _get_part_under_mouse(get_viewport().get_mouse_position())
-		if current != _hold_part:
-			_hold_part = current
-			_hold_timer = 0.0
-			radial.visible = _hold_part != null
-			_set_hold_progress(0.0)
+			# Trigger action when time is due
+			if _hold_part != null and _hold_timer >= hold_time_to_act:
+				if mode == Mode.MOUNT:
+					_hold_part.try_mount()
+				else:
+					_hold_part.try_dismount()
 
-		# dismount when time is due
-		if _hold_part != null and _hold_timer >= hold_time_to_dismount:
-			_hold_part.try_dismount()
-			_refresh_mount_ghosts()
+				_refresh_mount_ghosts()
 
-			_holding = false
-			_hold_timer = 0.0
-			_hold_part = null
-			radial.visible = false
-			_set_hold_progress(0.0)
+				_holding = false
+				_hold_timer = 0.0
+				_hold_part = null
+				radial.visible = false
+				_set_hold_progress(0.0)
 			
 	# Follow mouse
 	var m := get_viewport().get_mouse_position() + crosshair_offset

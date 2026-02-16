@@ -4,7 +4,7 @@ uniform float progress : hint_range(0.0, 1.0) = 0.0;   // 0..1
 uniform float radius   : hint_range(0.0, 0.5) = 0.42;  // ring size in UV
 uniform float thickness: hint_range(0.001, 0.2) = 0.06; // ring thickness
 
-uniform vec4  fg_color : source_color = vec4(0.6, 1.0, 0.6, 1.0); // light green
+uniform vec4  fg_color : source_color = vec4(0.0, 0.0, 1.0, 1.0); // light blue
 uniform vec4  bg_color : source_color = vec4(1.0, 1.0, 1.0, 0.15); // dim background
 
 // Initial angle (in radians). -PI/2 = starting up
