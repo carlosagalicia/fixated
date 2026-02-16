@@ -1,7 +1,17 @@
-[gd_scene load_steps=3 format=3 uid="uid://wjjiidogaxxf"]
+[gd_scene load_steps=5 format=3 uid="uid://wjjiidogaxxf"]
 
 [ext_resource type="Script" uid="uid://d4amfhh2i7ww1" path="res://scripts/Main.gd" id="1_elqb8"]
 [ext_resource type="PackedScene" uid="uid://4fidm1b6qafh" path="res://scenes/Engine.tscn" id="2_rvslj"]
+[ext_resource type="Shader" uid="uid://cbvr6f0m1x500" path="res://shaders/radialMount.gdshader" id="3_0bbpv"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_rarhs"]
+shader = ExtResource("3_0bbpv")
+shader_parameter/progress = 0.0
+shader_parameter/radius = 0.42
+shader_parameter/thickness = 0.06
+shader_parameter/fg_color = Color(0.6, 1, 0.6, 1)
+shader_parameter/bg_color = Color(1, 1, 1, 0.15)
+shader_parameter/start_angle = -1.5707964
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_elqb8")
@@ -22,6 +32,42 @@ popup/item_0/text = "Mount"
 popup/item_0/id = 0
 popup/item_1/text = "Dismount"
 popup/item_1/id = 1
+
+[node name="Crosshair" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 0
+mouse_filter = 2
+
+[node name="Dot" type="ColorRect" parent="UI/Crosshair"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -3.0
+offset_top = -3.0
+offset_right = 3.0
+offset_bottom = 3.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Radial" type="ColorRect" parent="UI/Crosshair"]
+material = SubResource("ShaderMaterial_rarhs")
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -30.5
+offset_top = -30.5
+offset_right = 29.5
+offset_bottom = 29.5
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
 
 [node name="CameraPivot" type="Node3D" parent="."]
 transform = Transform3D(0.70710677, 0, 0.70710677, 0, 1, 0, -0.70710677, 0, 0.70710677, 0, 0, 0)

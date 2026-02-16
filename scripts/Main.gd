@@ -8,14 +8,21 @@ const TOP_PITCH := -PI / 2.0
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D # obtains camera
 @onready var parts: Array[Node] = [] # obtains all parts
+@onready var radial: ColorRect = $UI/Crosshair/Radial
+@onready var crosshair: Control = $UI/Crosshair
 
+@export var crosshair_offset := Vector2.ZERO # crisshair offset from the mouse
 @export var yaw_speed: float = 2.5 # left/right rotation
 @export var pitch_speed: float = 2 # up/down rotation
 @export var zoom_speed: float = 0.5
 @export var min_distance: float = 1.25
 @export var max_distance: float = 3.0
 @export var zoom_time: float = 0.15
+@export var hold_time_to_dismount: float = 0.5
 
+var _hold_part: Node3D = null # part that is being held
+var _hold_timer: float = 0.0
+var _holding := false # if we are currently holding a part
 var hovered_part: Node3D = null
 var yaw := 0.0
 var pitch := 0.0
@@ -24,6 +31,38 @@ var distance: float = 0.0
 var zoom_tween: Tween
 var camera_z_sign := 1.0
 var highlighted_children: Array[Node3D] = []
+
+"""
+Set the radial progress shader parameter to show hold-to-dismount progress.
+@type: void
+@param: progress value between 0.0 and 1.0 (float)
+"""
+func _set_hold_progress(p: float) -> void:
+	var mat := radial.material as ShaderMaterial
+	if mat:
+		mat.set_shader_parameter("progress", clampf(p, 0.0, 1.0))
+
+
+"""
+Return the part under the mouse cursor by raycasting into the scene.
+@type: Node3D
+@param: screen position of the mouse (Vector2)
+"""
+func _get_part_under_mouse(screen_pos: Vector2) -> Node3D:
+	var space := get_world_3d().direct_space_state
+	var from := camera.project_ray_origin(screen_pos)
+	var to := from + camera.project_ray_normal(screen_pos) * 100.0
+
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collide_with_bodies = true
+	query.collide_with_areas = true
+
+	var result := space.intersect_ray(query)
+	if result and result.collider:
+		var info := _get_part_and_is_ghost(result.collider)
+		return info["part"] as Node3D
+
+	return null
 
 """
 Return the part that was hit by the ray and whether it is a ghost part or not
@@ -75,11 +114,14 @@ func _refresh_mount_ghosts() -> void:
 
 """
 Called when the node enters the scene tree for the first time. Set to dismount
-mode by default
+mode by default. Initialize camera rotation and distance. Get all parts in the scene.
 @type: void
 @param: none
 """
 func _ready() -> void:
+	# hide mouse
+	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
+	
 	# initialize pivot rotation
 	var r := pivot.rotation
 	yaw = r.y
@@ -100,10 +142,13 @@ func _ready() -> void:
 	
 	parts = get_tree().get_nodes_in_group("parts") # get all parts
 	_refresh_mount_ghosts()
+	
+	radial.visible = false
+	_set_hold_progress(0.0)
 
 """
-Handle left-click events on parts to mount/dismount them.
-Handle mouse hover on parts to outline them in green
+Handle player input for hovering, clicking, and zooming. 
+Left-click behavior depends on the current mode (MOUNT or DISMOUNT).
 @type: void
 @param: left-click event (InputEvent)
 """
@@ -112,30 +157,34 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 	if event is InputEventMouseMotion:
 		_update_hover(event.position)
 	
-	# left click on object
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	# left click / hold logic
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		_update_hover(event.position) # update hover
-		var space := get_world_3d().direct_space_state # current 3D world state
-		var from: Vector3 = camera.project_ray_origin(event.position) # ray from camera(click on screen)
-		var to: Vector3 = from + camera.project_ray_normal(event.position) * 100.0 # final point of ray
 		
-		var query := PhysicsRayQueryParameters3D.create(from, to) # define total ray
-		query.collide_with_bodies = true
-		query.collide_with_areas = true
-		var result := space.intersect_ray(query) # execute ray returning collision info
-		
-		if result and result.collider: # if there is a collision:
-			var info := _get_part_and_is_ghost(result.collider)
-			var part: Node3D = info["part"]
-			if part:
-				if mode == Mode.MOUNT:
-					if part.has_method("try_mount"):
-						part.try_mount()
-				else:
-					if part.has_method("try_dismount"):
-						part.try_dismount()
-			_refresh_mount_ghosts()
-	
+		if mode == Mode.MOUNT:
+			# Regular mount click
+			if event.pressed:
+				var part := _get_part_under_mouse(event.position)
+				if part:
+					part.try_mount()
+					_refresh_mount_ghosts()
+		else:
+			# DISMOUNT: HOLD to dismount
+			if event.pressed:
+				_holding = true
+				_hold_timer = 0.0
+				_hold_part = _get_part_under_mouse(event.position)
+				# show radial if pressing on a part
+				radial.visible = _hold_part != null
+				_set_hold_progress(0.0)
+			else:
+				# if let go before then cancel
+				_holding = false
+				_hold_timer = 0.0
+				_hold_part = null
+				radial.visible = false
+				_set_hold_progress(0.0)
+
 	# zoom
 	if event.is_action_pressed("zoom_in"):
 		_zoom_to(distance - zoom_speed)
@@ -163,7 +212,7 @@ func _zoom_to(new_distance: float) -> void:
 	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 """
-Select the current item, updates the ghost view of all parts
+Handle mode switching between MOUNT and DISMOUNT when the player selects an option from the UI.
 @type: void
 @param: index (int)
 """
@@ -172,9 +221,16 @@ func _on_mode_selector_item_selected(index: int) -> void:
 	mode = Mode.MOUNT if index == 0 else Mode.DISMOUNT
 	# Update ghost preview
 	_refresh_mount_ghosts()
+	_holding = false
+	_hold_timer = 0.0
+	_hold_part = null
+	radial.visible = false
+	_set_hold_progress(0.0)
 
 """
-Update the hover 
+Update the hovered part based on the current mouse position. 
+Outline the hovered part in green, and if in DISMOUNT mode, 
+also show red blockers for parts that would prevent dismounting.
 @type: void
 @param: current mouse position (Vector2)
 """
@@ -197,26 +253,25 @@ func _update_hover(mouse_pos: Vector2) -> void:
 		new_is_ghost = info["is_ghost"]
 
 	if new_hover != hovered_part:
-		if hovered_part and hovered_part.has_method("set_hovered"):
+		if hovered_part:
 			hovered_part.set_hovered(false)
 
 		_clear_highlighted_children()
 
 		hovered_part = new_hover
 
-		if hovered_part and hovered_part.has_method("set_hovered"):
+		if hovered_part:
 			hovered_part.set_hovered(true, new_is_ghost)
 
-			if mode == Mode.DISMOUNT and hovered_part.has_method("get_blocking_dismount_children"):
+			if mode == Mode.DISMOUNT:
 				var blockers_list: Array[Node3D] = hovered_part.get_blocking_dismount_children()
 				for b in blockers_list:
-					if b and b.has_method("set_temp_color"):
+					if b:
 						b.set_temp_color(Color.RED)
 						highlighted_children.append(b)
 
-
 """
-Update the rotation
+Update the camera rotation based on player input. Handle hold-to-dismount logic in DISMOUNT mode.
 @type: void
 @param: current time elapsed (float)
 """
@@ -240,6 +295,43 @@ func _process(delta: float) -> void:
 	pitch = clamp(pitch, TOP_PITCH, FRONT_PITCH)
 
 	pivot.rotation = Vector3(pitch, yaw, 0.0)
+	
+	# Hold-to-dismount
+	if mode == Mode.DISMOUNT and _holding:
+		if _hold_part == null:
+			_holding = false
+			_hold_timer = 0.0
+			radial.visible = false
+			_set_hold_progress(0.0)
+			return
+
+		_hold_timer += delta
+		var progress := _hold_timer / hold_time_to_dismount
+		radial.visible = true
+		_set_hold_progress(progress)
+
+		# if mouse changes to another piece, restart
+		var current := _get_part_under_mouse(get_viewport().get_mouse_position())
+		if current != _hold_part:
+			_hold_part = current
+			_hold_timer = 0.0
+			radial.visible = _hold_part != null
+			_set_hold_progress(0.0)
+
+		# dismount when time is due
+		if _hold_part != null and _hold_timer >= hold_time_to_dismount:
+			_hold_part.try_dismount()
+			_refresh_mount_ghosts()
+
+			_holding = false
+			_hold_timer = 0.0
+			_hold_part = null
+			radial.visible = false
+			_set_hold_progress(0.0)
+			
+	# Follow mouse
+	var m := get_viewport().get_mouse_position() + crosshair_offset
+	crosshair.position = m - crosshair.size * 0.5
 
 """
 Clear the parts that were highlighted
