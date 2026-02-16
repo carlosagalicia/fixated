@@ -1,6 +1,7 @@
 extends Node3D
 
 enum State {MOUNTED, DISMOUNTED} # different part states
+const LAYER_GHOST := 1 << 1
 
 @export var part_name := "Part" # Current part name
 """Dependencies part lists"""
@@ -104,8 +105,8 @@ func set_ghost_visible(v: bool) -> void:
 	if ghost_hit:
 		ghost_hit.monitorable = showg
 		ghost_hit.monitoring = showg
-		ghost_hit.collision_layer = 1 if showg else 0
-		ghost_hit.collision_mask = 1 if showg else 0
+		ghost_hit.collision_layer = LAYER_GHOST if showg else 0
+		ghost_hit.collision_mask = LAYER_GHOST if showg else 0
 	if not showg:
 		_ghost_clear_hover_color()
 
