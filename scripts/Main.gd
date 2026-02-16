@@ -4,6 +4,8 @@ enum Mode {MOUNT, DISMOUNT}
 
 const FRONT_PITCH := PI / 10.0
 const TOP_PITCH := -PI / 2.0
+const LAYER_SOLID := 1 << 0
+const LAYER_GHOST := 1 << 1
 
 @onready var pivot: Node3D = $CameraPivot
 @onready var camera: Camera3D = $CameraPivot/Camera3D # obtains camera
@@ -19,6 +21,7 @@ const TOP_PITCH := -PI / 2.0
 @export var max_distance: float = 3.0
 @export var zoom_time: float = 0.15
 @export var hold_time_to_act: float = 0.5
+@export var click_move_tolerance_px := 8.0
 
 var _hold_part: Node3D = null # part that is being held
 var _hold_timer: float = 0.0
@@ -31,10 +34,132 @@ var distance: float = 0.0
 var zoom_tween: Tween
 var camera_z_sign := 1.0
 var highlighted_children: Array[Node3D] = []
+var _press_pos: Vector2 = Vector2.ZERO
+var _press_is_ghost := false
+var _press_part: Node3D = null
+var _hold_fired := false
 
 """
-Perform a raycast from the camera through the given screen position 
-and return the part that was hit and whether it is a ghost part or not.
+Find the nearest ancestor of a node that is a part (has try_mount and try_dismount methods).
+@type: Node3D
+@param: the node to start searching from (Node)
+"""
+func _find_part_ancestor(n: Node) -> Node3D:
+	var cur: Node = n
+	while cur != null:
+		if cur.has_method("try_mount") and cur.has_method("try_dismount"):
+			return cur as Node3D
+		cur = cur.get_parent()
+	return null
+
+"""
+Focus the camera on a part by tweening the pivot's global position to the part's focus position and zooming to a suitable distance.
+@type: void
+@param: the part to focus on (Node3D), whether the part is a ghost or not (bool)
+"""
+func _focus_on_part(part: Node3D, is_ghost: bool) -> void:
+	if part == null:
+		return
+
+	var target_pos := _get_part_focus_position(part, is_ghost)
+
+	var t := create_tween()
+	t.tween_property(pivot, "global_position", target_pos, 0.2) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	var desired := _compute_distance_for_part(part)
+	_zoom_to(desired)
+
+"""
+Get the position to focus the camera on for a part. If the part is a ghost, try to find a "GhostHit" or "Ghost" child to focus on.
+If not a ghost, try to find a "FocusPoint" child. If none of those are found, fall back to the center of the part's global AABB.
+@type: Vector3
+@param: the part to get the focus position for (Node3D), whether the part is a ghost or not (bool)
+"""
+func _get_part_focus_position(part: Node3D, is_ghost: bool) -> Vector3:
+	if is_ghost:
+		var gh := part.get_node_or_null("Body/GhostHit")
+		if gh and gh is Node3D:
+			return (gh as Node3D).global_position
+
+		var g := part.get_node_or_null("Body/Ghost")
+		if g and g is Node3D:
+			return (g as Node3D).global_position
+	
+	# if not ghost
+	var fp := part.get_node_or_null("FocusPoint")
+	if fp and fp is Node3D:
+		return (fp as Node3D).global_position
+
+	return _get_global_aabb(part).get_center()
+
+"""
+Compute a suitable camera distance for a part based on the size of its global AABB.
+The distance is 3 times the radius of the part's AABB.
+@type: float
+@param: the part to compute the distance for (Node3D)
+"""
+func _compute_distance_for_part(part: Node3D) -> float:
+	var aabb := _get_global_aabb(part)
+	var radius := aabb.get_longest_axis_size() * 0.5
+	radius = max(radius, 0.05)
+
+	return radius * 3.0
+
+"""
+Compute the global AABB of a part by merging the AABBs of all its visible VisualInstance3D children.
+If there are no visible VisualInstance3D children, return a small AABB centered on the part's global position.
+@type: AABB
+@param: the part to compute the AABB for (Node3D)
+"""
+func _get_global_aabb(root: Node3D) -> AABB:
+	var has_any := false
+	var merged := AABB()
+
+	for n in root.get_children(true):
+		if n is VisualInstance3D:
+			var vi := n as VisualInstance3D
+			if not vi.visible:
+				continue
+			var local := vi.get_aabb()
+			var global := _aabb_transform(local, vi.global_transform)
+
+			if not has_any:
+				merged = global
+				has_any = true
+			else:
+				merged = merged.merge(global)
+
+	if not has_any:
+		return AABB(root.global_position, Vector3.ONE * 0.1)
+
+	return merged
+
+"""
+Apply a global transform to an AABB by transforming all 8 corners and computing a new AABB that contains them.
+@type: AABB
+@param: the AABB to transform (AABB), the global transform to apply (Transform3D)
+"""
+func _aabb_transform(aabb: AABB, t: Transform3D) -> AABB:
+	var pts := [
+		aabb.position,
+		aabb.position + Vector3(aabb.size.x, 0, 0),
+		aabb.position + Vector3(0, aabb.size.y, 0),
+		aabb.position + Vector3(0, 0, aabb.size.z),
+		aabb.position + Vector3(aabb.size.x, aabb.size.y, 0),
+		aabb.position + Vector3(aabb.size.x, 0, aabb.size.z),
+		aabb.position + Vector3(0, aabb.size.y, aabb.size.z),
+		aabb.position + aabb.size
+	]
+
+	var p0: Vector3 = t * pts[0]
+	var out := AABB(p0, Vector3.ZERO)
+	for i in range(1, pts.size()):
+		out = out.expand(t * pts[i])
+	return out
+
+"""
+Raycast into the scene from the given screen position. First check for ghost parts, then solid parts.
 @type: Dictionary
 @param: screen position to raycast from (Vector2)
 """
@@ -42,15 +167,31 @@ func _raycast_from_screen(screen_pos: Vector2) -> Dictionary:
 	var space := get_world_3d().direct_space_state
 	var from := camera.project_ray_origin(screen_pos)
 	var to := from + camera.project_ray_normal(screen_pos) * 100.0
+	
+	# Query ghost
+	var qg := PhysicsRayQueryParameters3D.create(from, to)
+	qg.collide_with_areas = true
+	qg.collide_with_bodies = false
+	qg.collision_mask = LAYER_GHOST
+	var rg := space.intersect_ray(qg)
+	
+	# Query solid
+	var qs := PhysicsRayQueryParameters3D.create(from, to)
+	qs.collide_with_areas = false
+	qs.collide_with_bodies = true
+	qs.collision_mask = LAYER_SOLID
+	var rs := space.intersect_ray(qs)
 
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.collide_with_bodies = true
-	query.collide_with_areas = true
+	if mode == Mode.DISMOUNT:
+		if rs and rs.collider:
+			return _get_part_and_is_ghost(rs.collider)
+		return {"part": null, "is_ghost": false}
 
-	var result := space.intersect_ray(query)
+	if rg and rg.collider:
+		return _get_part_and_is_ghost(rg.collider)
 
-	if result and result.collider:
-		return _get_part_and_is_ghost(result.collider)
+	if rs and rs.collider:
+		return _get_part_and_is_ghost(rs.collider)
 
 	return {"part": null, "is_ghost": false}
 
@@ -80,14 +221,13 @@ Return the part that was hit by the ray and whether it is a ghost part or not
 @param: the object that was hit by the ray (Object)
 """
 func _get_part_and_is_ghost(hit: Object) -> Dictionary:
-	if hit is Area3D:
-		var body := (hit as Node).get_parent()
-		var part := body.get_parent() as Node3D
-		return {"part": part, "is_ghost": true}
+	if hit is Node:
+		var part := _find_part_ancestor(hit as Node)
+		if part == null:
+			return {"part": null, "is_ghost": false}
 
-	if hit is CollisionObject3D:
-		var part := (hit as Node).get_parent() as Node3D
-		return {"part": part, "is_ghost": false}
+		var is_ghost := (hit is Area3D)
+		return {"part": part, "is_ghost": is_ghost}
 
 	return {"part": null, "is_ghost": false}
 
@@ -172,9 +312,15 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 		_update_hover(event.position)
 
 		if event.pressed:
+			_press_pos = event.position
+			_hold_fired = false
+			
 			var info := _raycast_from_screen(event.position)
 			var part: Node3D = info["part"]
 			var is_ghost: bool = info["is_ghost"]
+			
+			_press_part = part
+			_press_is_ghost = is_ghost
 
 			if mode == Mode.MOUNT:
 				# Only a ghost part initiates hold
@@ -206,12 +352,20 @@ func _unhandled_input(event: InputEvent) -> void: # called when an InputEvent ha
 					_set_hold_progress(0.0)
 
 		else:
-			# Click is released, hold is canceled
+			# Click is released, hold is canceled and event is click
+			var moved := _press_pos.distance_to(event.position) > click_move_tolerance_px
+			
+			if not _hold_fired and not moved and _press_part != null:
+				# regular click
+				_focus_on_part(_press_part, _press_is_ghost)
+				
 			_holding = false
 			_hold_timer = 0.0
 			_hold_part = null
 			radial.visible = false
 			_set_hold_progress(0.0)
+			
+			_press_part = null
 
 	# zoom
 	if event.is_action_pressed("zoom_in"):
@@ -341,6 +495,8 @@ func _process(delta: float) -> void:
 					_hold_part.try_dismount()
 
 				_refresh_mount_ghosts()
+				
+				_hold_fired = true
 
 				_holding = false
 				_hold_timer = 0.0
