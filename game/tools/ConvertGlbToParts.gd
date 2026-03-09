@@ -10,7 +10,7 @@ var _out_root: Node3D
 @export var glb_root: NodePath = "Sketchfab_Scene/Sketchfab_model/V6EN_fbx/RootNode"
 @export var parts_root: NodePath
 @export var part_scene: PackedScene
-@export var part_script: Script = preload("C:/Users/alexs/Documents/Robotica/Proyectos godot/fixated/scripts/Part.gd")
+@export var part_script: Script = preload("res://game/parts/Part.gd")
 @export var outline_scale: float = 1.03
 @export var outline_color: Color = Color(0.2, 1.0, 0.2, 1.0)
 @export var make_ghost := true
