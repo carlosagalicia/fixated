@@ -1,20 +1,3 @@
-[gd_scene load_steps=2 format=3 uid="uid://4fidm1b6qafh"]
-
-[ext_resource type="PackedScene" uid="uid://d0xxdj2ddwkc3" path="res://scenes/Part.tscn" id="1_65q0f"]
-
-[node name="Engine" type="Node3D"]
-
-[node name="Block" parent="." instance=ExtResource("1_65q0f")]
-dismount_requires_dismounted = Array[NodePath]([NodePath("../Head"), NodePath("../Filter")])
-
-[node name="Head" parent="." instance=ExtResource("1_65q0f")]
-transform = Transform3D(0.75, 0, 0, 0, 0.75, 0, 0, 0, 0.75, 0.913, 0, 0)
-mount_requires_mounted = Array[NodePath]([NodePath("../Block")])
-exploded_offset = Vector3(1, 0, 0)
-exploded_distance = 1.2
-
-[node name="Filter" parent="." instance=ExtResource("1_65q0f")]
-transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0.75)
-mount_requires_mounted = Array[NodePath]([NodePath("../Block")])
-exploded_offset = Vector3(0, 0, 1)
-exploded_distance = 1.5
+version https://git-lfs.github.com/spec/v1
+oid sha256:0d57709ae06d535bf533ec6e5daa13cb31bcade3439641317551c03e5f3e0e8d
+size 873
