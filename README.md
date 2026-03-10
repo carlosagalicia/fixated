@@ -133,3 +133,5 @@ Mount or dismount the selected part depending on the current mode.
 
 Mode selector:
 Switch between Mount and Dismount modes.
+
+<img width="1274" height="715" alt="fixated4" src="https://github.com/user-attachments/assets/8dbab581-f3fb-42ad-9f3e-6b3d4d3c5d6a" />
